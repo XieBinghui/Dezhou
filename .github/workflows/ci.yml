@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: RC gate
+        run: |
+          set -o pipefail
+          npm run rc:check 2>&1 | tee .ci-rc.log
+
+      - name: Prepare failure artifacts
+        if: failure()
+        run: |
+          mkdir -p .ci-artifacts
+          if [ -f data/stability-report.json ]; then
+            cp data/stability-report.json .ci-artifacts/stability-report.json
+          fi
+          if [ -f data/stability-audit-tail.log ]; then
+            cp data/stability-audit-tail.log .ci-artifacts/stability-audit-tail.log
+          fi
+          if [ -f data/audit.log ]; then
+            tail -n 400 data/audit.log > .ci-artifacts/audit-recent.log
+          elif [ -f apps/server/data/audit.log ]; then
+            tail -n 400 apps/server/data/audit.log > .ci-artifacts/audit-recent.log
+          else
+            printf "audit log file not found in data/audit.log or apps/server/data/audit.log\n" > .ci-artifacts/audit-recent.log
+          fi
+          if [ -f .ci-rc.log ]; then
+            cp .ci-rc.log .ci-artifacts/ci-rc.log
+          fi
+
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-failure-debug
+          path: .ci-artifacts/*
+          if-no-files-found: warn
+          retention-days: 7
