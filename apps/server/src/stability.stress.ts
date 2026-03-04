@@ -34,6 +34,16 @@ const PLAYER_COUNT = Number(process.env.STRESS_PLAYERS ?? 10);
 const MAX_STEPS = Number(process.env.STRESS_MAX_STEPS ?? 120_000);
 const ACTION_SECONDS = Number(process.env.STRESS_ACTION_SECONDS ?? 2);
 const REPORT_PATH = resolve(dirname(fileURLToPath(import.meta.url)), "../../../data/stability-report.json");
+const AUDIT_TAIL_PATH = resolve(dirname(fileURLToPath(import.meta.url)), "../../../data/stability-audit-tail.log");
+
+let capturedAudits: AuditLog[] = [];
+
+function writeAuditTail(audits: AuditLog[]): void {
+  const tail = audits.slice(-300).map((entry) => JSON.stringify({ ts: entry.ts, ...entry.event }));
+  const content = tail.length > 0 ? `${tail.join("\n")}\n` : "no audit events captured\n";
+  mkdirSync(dirname(AUDIT_TAIL_PATH), { recursive: true });
+  writeFileSync(AUDIT_TAIL_PATH, content, "utf8");
+}
 
 let seed = Number(process.env.STRESS_SEED ?? 20260304);
 function rand(): number {
@@ -140,6 +150,7 @@ function assertSync(states: Map<string, TableStateDTO>, players: SimPlayer[]): v
 function run(): void {
   const states = new Map<string, TableStateDTO>();
   const audits: AuditLog[] = [];
+  capturedAudits = audits;
   const actionEvents: Array<{ handId: string; timestamp: number; playerId: string; action: string; amount: number; isAuto: boolean }> = [];
   const actionSeen = new Set<string>();
 
@@ -415,6 +426,7 @@ function run(): void {
 
   mkdirSync(dirname(REPORT_PATH), { recursive: true });
   writeFileSync(REPORT_PATH, JSON.stringify(report, null, 2), "utf8");
+  writeAuditTail(audits);
   // eslint-disable-next-line no-console
   console.log("stability stress passed", report);
 }
@@ -429,6 +441,7 @@ try {
   };
   mkdirSync(dirname(REPORT_PATH), { recursive: true });
   writeFileSync(REPORT_PATH, JSON.stringify(failReport, null, 2), "utf8");
+  writeAuditTail(capturedAudits);
   // eslint-disable-next-line no-console
   console.error("stability stress failed", failReport);
   process.exitCode = 1;

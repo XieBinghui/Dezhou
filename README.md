@@ -86,6 +86,11 @@ npm run rc:check
 - 已接入 GitHub Actions：`.github/workflows/ci.yml`
 - 触发时机：`push` 到 `main/master` 或 `pull_request`
 - 执行内容：`npm ci` + `npm run rc:check`
+- 失败时自动上传排错附件（Artifact：`ci-failure-debug`）：
+  - `stability-report.json`
+  - `stability-audit-tail.log`
+  - `audit-recent.log`
+  - `ci-rc.log`
 
 ## Docker 运行
 
