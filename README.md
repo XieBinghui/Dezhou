@@ -14,6 +14,9 @@
 - 摊牌可视化：仅展示进入摊牌玩家的亮牌与最佳五张
 - 位置标注：庄家 / 小盲 / 大盲 / 枪口 / 低位 / 劫位 / 关煞
 - 超时与断线托管：可过牌则过牌，否则弃牌
+- 状态持久化：Redis 保存桌快照，进程重启自动恢复
+- 审计双写：文件日志 + PostgreSQL 结构化日志
+- 可观测性：`/health`、`/ready`、`/metrics`
 - 基础审计日志：`data/audit.log`
 
 ## 项目结构
@@ -26,12 +29,26 @@
 
 ```bash
 npm install
+npm run deps:up
 npm run build -w @dezhou/shared
 npm run dev -w @dezhou/server
 npm run dev -w @dezhou/web
 ```
 
 前端默认 `http://localhost:5173`，后端默认 `http://localhost:3000`。
+
+`deps:up` 会拉起本地 Redis/Postgres（见下方命令）。
+
+## 环境变量（Server）
+
+- `PORT`：默认 `3000`
+- `WEB_ORIGIN`：逗号分隔白名单，默认 `http://localhost:5173,http://localhost:8080`
+- `REDIS_URL`：默认 `redis://localhost:6379`（生产必填）
+- `POSTGRES_URL`：默认 `postgres://dezhou:dezhou@localhost:5432/dezhou`（生产必填）
+- `SESSION_SECRET`：开发默认 `dev-session-secret`（生产必填）
+- `RATE_LIMIT_WINDOW_MS` / `RATE_LIMIT_MAX`：HTTP 限流窗口和次数
+- `RATE_LIMIT_SOCKET_WINDOW_MS` / `RATE_LIMIT_SOCKET_MAX`：Socket 限流窗口和次数
+- `LOG_LEVEL`：`debug|info|warn|error`
 
 ### 本机单人压测模式
 
@@ -81,6 +98,19 @@ npm run rc:check
   - 状态一致性检查通过（无状态不同步）
   - 审计追溯检查通过（`hand_start`/`hand_end`/动作链完整）
 
+## 发布演练（单机 Docker）
+
+```bash
+npm run drill:release
+```
+
+- 执行内容：
+  - `npm run rc:check`
+  - `docker compose up -d --build`
+  - `/health`、`/ready` 检查
+  - `server` 服务重启 3 次恢复演练
+- 输出报告：`data/release-drill-report.json`
+
 ## CI（自动验收）
 
 - 已接入 GitHub Actions：`.github/workflows/ci.yml`
@@ -101,6 +131,7 @@ docker compose up --build
 - 前端（容器）：`http://localhost:5173`
 - 反向代理入口（nginx）：`http://localhost:8080`
 - 后端 health：`http://localhost:3000/health`
+- TLS 模板：`infra/nginx/default.tls.conf`（替换证书路径后启用）
 
 ## 备注
 

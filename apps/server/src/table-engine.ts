@@ -14,6 +14,7 @@ import type {
 import { createDeck, deal, shuffleDeck } from "./cards.js";
 import { evaluateSeven, compareHandScore } from "./evaluator.js";
 import { buildPots, type Contribution } from "./pot-manager.js";
+import type { EngineSnapshot, HandRuntimeSnapshot } from "./state-store.js";
 
 interface PlayerSession {
   playerId: string;
@@ -96,8 +97,8 @@ export class TableEngine {
 
   join(payload: { nickname: string; token?: string; socketId: string }): { ok: boolean; reason?: string; token?: string; playerId?: string } {
     const name = payload.nickname.trim().slice(0, 20);
-    if (!name) {
-      return { ok: false, reason: "昵称不能为空" };
+    if (!this.isNicknameValid(name)) {
+      return { ok: false, reason: "昵称仅支持中英文、数字、空格、下划线和中划线，长度 1-20" };
     }
 
     if (payload.token) {
@@ -309,7 +310,9 @@ export class TableEngine {
       this.hooks.onAudit({
         type: "action",
         handId: hand.handId,
+        ts: event.timestamp,
         playerId,
+        nickname: player.nickname,
         action,
         amount,
         street: hand.street,
@@ -449,6 +452,112 @@ export class TableEngine {
     return this.players.get(playerId)?.socketId ?? null;
   }
 
+  dumpSnapshot(now = Date.now()): EngineSnapshot {
+    const hand = this.hand
+      ? {
+          handId: this.hand.handId,
+          deck: this.hand.deck,
+          board: this.hand.board,
+          street: this.hand.street,
+          toActSeat: this.hand.toActSeat,
+          currentBet: this.hand.currentBet,
+          minRaiseTo: this.hand.minRaiseTo,
+          lastFullRaiseSize: this.hand.lastFullRaiseSize,
+          actionDeadlineTs: this.hand.actionDeadlineTs,
+          startedAt: this.hand.startedAt,
+          showdownAt: this.hand.showdownAt,
+          streetContrib: [...this.hand.streetContrib.entries()],
+          totalContrib: [...this.hand.totalContrib.entries()],
+          hasActed: [...this.hand.hasActed.entries()],
+          folded: [...this.hand.folded.values()],
+          allIn: [...this.hand.allIn.values()],
+          holeCards: [...this.hand.holeCards.entries()],
+          actionLog: this.hand.actionLog,
+          pots: this.hand.pots,
+          positionLabels: [...this.hand.positionLabels.entries()]
+        }
+      : null;
+
+    return {
+      version: 1,
+      tableId: this.cfg.tableId,
+      maxSeats: this.cfg.maxSeats,
+      sb: this.cfg.sb,
+      bb: this.cfg.bb,
+      buyIn: this.cfg.buyIn,
+      actionSeconds: this.cfg.actionSeconds,
+      hostPlayerId: this.hostPlayerId,
+      buttonPos: this.buttonPos,
+      waiting: [...this.waiting],
+      seats: [...this.seats],
+      players: [...this.players.values()].map((p) => ({
+        playerId: p.playerId,
+        nickname: p.nickname,
+        token: p.token,
+        socketId: p.socketId,
+        isConnected: p.isConnected,
+        disconnectedAt: p.disconnectedAt,
+        seatIndex: p.seatIndex,
+        stack: p.stack,
+        pendingRebuy: p.pendingRebuy,
+        ready: p.ready,
+        lastAction: p.lastAction
+      })),
+      hand,
+      savedAt: now
+    };
+  }
+
+  restoreFromSnapshot(snapshot: EngineSnapshot, now = Date.now()): { ok: boolean; reason?: string } {
+    try {
+      if (!snapshot || snapshot.version !== 1) {
+        return { ok: false, reason: "快照版本不支持" };
+      }
+      if (snapshot.maxSeats !== this.cfg.maxSeats || snapshot.tableId !== this.cfg.tableId) {
+        return { ok: false, reason: "快照与当前配置不匹配" };
+      }
+
+      this.players.clear();
+      this.waiting.splice(0, this.waiting.length);
+      for (let i = 0; i < this.seats.length; i += 1) {
+        this.seats[i] = null;
+      }
+
+      for (const player of snapshot.players) {
+        this.players.set(player.playerId, {
+          playerId: player.playerId,
+          nickname: player.nickname,
+          token: player.token,
+          socketId: null,
+          isConnected: false,
+          disconnectedAt: player.disconnectedAt ?? now,
+          seatIndex: player.seatIndex,
+          stack: player.stack,
+          pendingRebuy: player.pendingRebuy,
+          ready: player.ready,
+          lastAction: player.lastAction
+        });
+      }
+      for (const pid of snapshot.waiting) {
+        if (this.players.has(pid)) {
+          this.waiting.push(pid);
+        }
+      }
+      for (let i = 0; i < this.seats.length; i += 1) {
+        const pid = snapshot.seats[i] ?? null;
+        this.seats[i] = pid && this.players.has(pid) ? pid : null;
+      }
+      this.hostPlayerId = snapshot.hostPlayerId && this.players.has(snapshot.hostPlayerId) ? snapshot.hostPlayerId : null;
+      this.buttonPos = snapshot.buttonPos;
+      this.hand = this.deserializeHand(snapshot.hand);
+      this.ensureHost();
+      this.broadcastAllStates();
+      return { ok: true };
+    } catch {
+      return { ok: false, reason: "快照恢复失败" };
+    }
+  }
+
   private activeSeatedPlayers(): PlayerSession[] {
     return [...this.players.values()].filter((p) => p.seatIndex !== null);
   }
@@ -525,7 +634,7 @@ export class TableEngine {
     this.postBlind(sbSeat, this.cfg.sb);
     this.postBlind(bbSeat, this.cfg.bb);
     runtime.positionLabels = this.buildPositionLabels(handPlayers, this.buttonPos, sbSeat, bbSeat);
-    this.hooks.onAudit({ type: "hand_start", handId, buttonPos: this.buttonPos, sbSeat, bbSeat });
+    this.hooks.onAudit({ type: "hand_start", handId, ts: runtime.startedAt, buttonPos: this.buttonPos, sbSeat, bbSeat });
 
     runtime.currentBet = Math.max(this.cfg.bb, runtime.streetContrib.get(this.seats[bbSeat]!) ?? 0);
     runtime.minRaiseTo = runtime.currentBet + runtime.lastFullRaiseSize;
@@ -562,6 +671,17 @@ export class TableEngine {
     };
     this.hand.actionLog.push(event);
     this.broadcastActionEvent(event);
+    this.hooks.onAudit({
+      type: "action",
+      handId: this.hand.handId,
+      ts: event.timestamp,
+      playerId: pid,
+      nickname: p.nickname,
+      action: "bet",
+      amount: pay,
+      street: "preflop",
+      isAuto: false
+    });
   }
 
   private nextEligibleSeat(start: number, allowedPlayers?: Set<string>): number {
@@ -910,7 +1030,13 @@ export class TableEngine {
       actionLog: [...hand.actionLog]
     };
 
-    this.hooks.onAudit({ type: "hand_end", handId: hand.handId, winners: winners.map((w) => ({ id: w.playerId, amount: w.amount })) });
+    this.hooks.onAudit({
+      type: "hand_end",
+      handId: hand.handId,
+      ts: Date.now(),
+      board: hand.board,
+      winners: winners.map((w) => ({ id: w.playerId, amount: w.amount }))
+    });
 
     for (const player of this.players.values()) {
       if (!player.socketId) {
@@ -1064,6 +1190,44 @@ export class TableEngine {
     if (idx >= 0) {
       this.waiting.splice(idx, 1);
     }
+  }
+
+  private deserializeHand(snapshot: HandRuntimeSnapshot | null): HandRuntime | null {
+    if (!snapshot) {
+      return null;
+    }
+    return {
+      handId: snapshot.handId,
+      deck: snapshot.deck,
+      board: snapshot.board,
+      street: snapshot.street,
+      toActSeat: snapshot.toActSeat,
+      currentBet: snapshot.currentBet,
+      minRaiseTo: snapshot.minRaiseTo,
+      lastFullRaiseSize: snapshot.lastFullRaiseSize,
+      actionDeadlineTs: snapshot.actionDeadlineTs,
+      startedAt: snapshot.startedAt,
+      showdownAt: snapshot.showdownAt,
+      streetContrib: new Map(snapshot.streetContrib),
+      totalContrib: new Map(snapshot.totalContrib),
+      hasActed: new Map(snapshot.hasActed),
+      folded: new Set(snapshot.folded),
+      allIn: new Set(snapshot.allIn),
+      holeCards: new Map(snapshot.holeCards),
+      actionLog: snapshot.actionLog,
+      pots: snapshot.pots,
+      positionLabels: new Map(snapshot.positionLabels)
+    };
+  }
+
+  private isNicknameValid(name: string): boolean {
+    if (!name || name.length > 20) {
+      return false;
+    }
+    if (/[<>\n\r\t]/.test(name)) {
+      return false;
+    }
+    return /^[\p{L}\p{N}_\-\s]+$/u.test(name);
   }
 
   private canStartHand(): boolean {

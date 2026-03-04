@@ -7,18 +7,22 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
-    "stress:stability": "tsx src/stability.stress.ts"
+    "stress:stability": "tsx src/stability.stress.ts",
+    "drill:release": "bash ../../scripts/release-drill.sh"
   },
   "dependencies": {
     "@dezhou/shared": "0.1.0",
     "cors": "^2.8.5",
     "express": "^4.21.2",
     "nanoid": "^5.1.5",
+    "pg": "^8.14.1",
+    "redis": "^4.7.0",
     "socket.io": "^4.8.1"
   },
   "devDependencies": {
     "@types/express": "^5.0.0",
     "@types/node": "^22.10.2",
+    "@types/pg": "^8.11.11",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3",
     "vitest": "^2.1.8"

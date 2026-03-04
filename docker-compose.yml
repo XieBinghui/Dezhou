@@ -8,12 +8,28 @@ services:
       - "3000:3000"
     environment:
       - PORT=3000
-      - WEB_ORIGIN=http://localhost:8080
+      - WEB_ORIGIN=http://localhost:5173,http://localhost:8080
+      - REDIS_URL=redis://redis:6379
+      - POSTGRES_URL=postgres://dezhou:dezhou@postgres:5432/dezhou
+      - SESSION_SECRET=replace-with-strong-secret
+      - RATE_LIMIT_WINDOW_MS=10000
+      - RATE_LIMIT_MAX=120
+      - RATE_LIMIT_SOCKET_WINDOW_MS=10000
+      - RATE_LIMIT_SOCKET_MAX=80
+      - LOG_LEVEL=info
     volumes:
       - ./data:/app/data
     depends_on:
-      - redis
-      - postgres
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
 
   web:
     build:
@@ -22,7 +38,14 @@ services:
     ports:
       - "5173:80"
     depends_on:
-      - server
+      server:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost/ >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
 
   nginx:
     image: nginx:1.27-alpine
@@ -31,13 +54,27 @@ services:
     volumes:
       - ./infra/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
-      - web
-      - server
+      web:
+        condition: service_healthy
+      server:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost/ >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
 
   redis:
     image: redis:7-alpine
     ports:
       - "6379:6379"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
 
   postgres:
     image: postgres:17-alpine
@@ -49,6 +86,12 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dezhou -d dezhou"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 volumes:
   pgdata:
