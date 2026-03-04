@@ -1,0 +1,14 @@
+{
+  "name": "dezhou",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w @dezhou/server & npm run dev -w @dezhou/web",
+    "build": "npm run build -w @dezhou/shared && npm run build -w @dezhou/server && npm run build -w @dezhou/web",
+    "test": "npm run test -w @dezhou/server"
+  }
+}

@@ -1,0 +1,54 @@
+version: "3.9"
+services:
+  server:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - WEB_ORIGIN=http://localhost:8080
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - redis
+      - postgres
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    ports:
+      - "5173:80"
+    depends_on:
+      - server
+
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - ./infra/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - web
+      - server
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: dezhou
+      POSTGRES_PASSWORD: dezhou
+      POSTGRES_DB: dezhou
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
