@@ -8,7 +8,7 @@ services:
       - "3000:3000"
     environment:
       - PORT=3000
-      - WEB_ORIGIN=http://localhost:5173,http://localhost:8080
+      - WEB_ORIGIN=http://localhost:5173,http://localhost:8080,http://152.136.121.48
       - REDIS_URL=redis://redis:6379
       - POSTGRES_URL=postgres://dezhou:dezhou@postgres:5432/dezhou
       - SESSION_SECRET=replace-with-strong-secret
@@ -50,7 +50,7 @@ services:
   nginx:
     image: nginx:1.27-alpine
     ports:
-      - "8080:80"
+      - "80:80"
     volumes:
       - ./infra/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
