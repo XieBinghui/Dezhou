@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "stress:stability": "tsx src/stability.stress.ts"
   },
   "dependencies": {
     "@dezhou/shared": "0.1.0",

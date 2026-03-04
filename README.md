@@ -48,6 +48,45 @@ npm run dev -w @dezhou/web
 npm run test -w @dezhou/server
 ```
 
+- 已包含规则矩阵回归：
+  - 最小加注边界表（Preflop/River 边界、最小下注/最小加注到）
+  - 全下重开全路径（不足额不重开、足额重开、未行动位最小再加注）
+  - 复杂并列边池拆分（主池单赢家 + 边池并列、奇数筹码拆分）
+
+## 稳定性压测（10人/100局）
+
+```bash
+npm run stress:stability
+```
+
+- 默认参数：10 人、100 局、含断线/托管/重连路径
+- 可选环境变量：
+  - `STRESS_PLAYERS`（默认 `10`）
+  - `STRESS_HANDS`（默认 `100`）
+  - `STRESS_ACTION_SECONDS`（默认 `2`）
+  - `STRESS_MAX_STEPS`（默认 `120000`）
+  - `STRESS_SEED`（默认 `20260304`）
+- 输出报告：`data/stability-report.json`
+
+## 发布候选版门槛检查（RC）
+
+```bash
+npm run rc:check
+```
+
+- RC 检查包含：
+  - 构建通过
+  - 规则回归测试通过
+  - 100 局稳定性压测通过
+  - 状态一致性检查通过（无状态不同步）
+  - 审计追溯检查通过（`hand_start`/`hand_end`/动作链完整）
+
+## CI（自动验收）
+
+- 已接入 GitHub Actions：`.github/workflows/ci.yml`
+- 触发时机：`push` 到 `main/master` 或 `pull_request`
+- 执行内容：`npm ci` + `npm run rc:check`
+
 ## Docker 运行
 
 ```bash

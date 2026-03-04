@@ -342,6 +342,9 @@ export class TableEngine {
       markActed();
       addLog("call", actionAmount);
     } else {
+      if (hand.currentBet > 0 && (hand.hasActed.get(playerId) ?? false) && callNeed > 0) {
+        return { ok: false, reason: "不足额全下未重新开启加注，你只能跟注或弃牌" };
+      }
       const target = payload.action === "allin" ? maxTotalStreet : payload.amount;
       if (target === undefined || !Number.isFinite(target)) {
         return { ok: false, reason: "加注金额无效" };
@@ -384,9 +387,9 @@ export class TableEngine {
         const isFullRaise = raiseSize >= hand.lastFullRaiseSize;
         if (isFullRaise) {
           hand.lastFullRaiseSize = raiseSize;
-          hand.minRaiseTo = hand.currentBet + hand.lastFullRaiseSize;
           this.resetActedExcept(playerId);
         }
+        hand.minRaiseTo = hand.currentBet + hand.lastFullRaiseSize;
         markActed();
         addLog(payload.action === "allin" ? "allin" : "raise", actionAmount);
       }
@@ -522,13 +525,17 @@ export class TableEngine {
     this.postBlind(sbSeat, this.cfg.sb);
     this.postBlind(bbSeat, this.cfg.bb);
     runtime.positionLabels = this.buildPositionLabels(handPlayers, this.buttonPos, sbSeat, bbSeat);
+    this.hooks.onAudit({ type: "hand_start", handId, buttonPos: this.buttonPos, sbSeat, bbSeat });
 
     runtime.currentBet = Math.max(this.cfg.bb, runtime.streetContrib.get(this.seats[bbSeat]!) ?? 0);
     runtime.minRaiseTo = runtime.currentBet + runtime.lastFullRaiseSize;
     runtime.toActSeat = this.nextActorFrom(bbSeat);
+    if (runtime.toActSeat === null) {
+      this.runoutBoardAndFinish();
+      return;
+    }
     this.armDeadline();
     this.broadcastAllStates();
-    this.hooks.onAudit({ type: "hand_start", handId, buttonPos: this.buttonPos, sbSeat, bbSeat });
   }
 
   private postBlind(seat: number, amount: number): void {
@@ -731,6 +738,24 @@ export class TableEngine {
     this.hand.lastFullRaiseSize = this.cfg.bb;
     this.hand.minRaiseTo = this.cfg.bb;
 
+    this.dealNextStreetCard();
+
+    for (const pid of this.hand.holeCards.keys()) {
+      this.hand.hasActed.set(pid, this.hand.folded.has(pid) || this.hand.allIn.has(pid));
+    }
+
+    this.hand.toActSeat = this.nextActorFrom(this.buttonPos);
+    if (this.hand.toActSeat === null) {
+      this.runoutBoardAndFinish();
+      return;
+    }
+    this.armDeadline();
+  }
+
+  private dealNextStreetCard(): void {
+    if (!this.hand) {
+      return;
+    }
     if (this.hand.street === "preflop") {
       this.hand.board.push(...deal(this.hand.deck, 3));
       this.hand.street = "flop";
@@ -741,13 +766,18 @@ export class TableEngine {
       this.hand.board.push(...deal(this.hand.deck, 1));
       this.hand.street = "river";
     }
+  }
 
-    for (const pid of this.hand.holeCards.keys()) {
-      this.hand.hasActed.set(pid, this.hand.folded.has(pid) || this.hand.allIn.has(pid));
+  private runoutBoardAndFinish(): void {
+    if (!this.hand) {
+      return;
     }
-
-    this.hand.toActSeat = this.nextActorFrom(this.buttonPos);
-    this.armDeadline();
+    this.hand.toActSeat = null;
+    this.hand.actionDeadlineTs = null;
+    while (this.hand.street !== "river") {
+      this.dealNextStreetCard();
+    }
+    this.finishHand();
   }
 
   private finishHand(): void {

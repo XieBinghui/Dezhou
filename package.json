@@ -9,6 +9,8 @@
   "scripts": {
     "dev": "npm run dev -w @dezhou/server & npm run dev -w @dezhou/web",
     "build": "npm run build -w @dezhou/shared && npm run build -w @dezhou/server && npm run build -w @dezhou/web",
-    "test": "npm run test -w @dezhou/server"
+    "test": "npm run test -w @dezhou/server",
+    "stress:stability": "npm run stress:stability -w @dezhou/server",
+    "rc:check": "npm run build && npm run test && npm run stress:stability"
   }
 }

@@ -185,6 +185,21 @@ describe("table engine action visibility", () => {
     expect(labels).toEqual(["大盲", "庄家/小盲"]);
   });
 
+  it("auto runouts board when all remaining players are all-in", () => {
+    const { engine, p1, getState, handResults } = setupTwoPlayers();
+    const preflop = getState(p1);
+    const firstActor = preflop.seats[preflop.hand.toActSeat!].playerId!;
+    expect(engine.applyAction(firstActor, { handId: preflop.hand.handId!, action: "allin" }).ok).toBe(true);
+
+    const next = getState(p1);
+    const secondActor = next.seats[next.hand.toActSeat!].playerId!;
+    expect(engine.applyAction(secondActor, { handId: next.hand.handId!, action: "call" }).ok).toBe(true);
+
+    const settled = getState(p1);
+    expect(settled.hand.handId).toBeNull();
+    expect(handResults.length).toBeGreaterThan(0);
+  });
+
   it("emits showdown players when reaching river showdown", () => {
     const { engine, p1, getState, handResults } = setupTwoPlayers();
 
